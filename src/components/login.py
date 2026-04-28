@@ -34,13 +34,6 @@ def render_login():
         padding: 2.5rem 2rem;
         box-shadow: 0 30px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(245,160,80,0.1);
     }
-    .login-divider {
-        display: flex; align-items: center; gap: 1rem;
-        color: #4A2E10; font-size: 0.75rem; margin: 1rem 0;
-    }
-    .login-divider::before, .login-divider::after {
-        content: ''; flex: 1; height: 1px; background: #4A2E10;
-    }
     .stTextInput > div > div > input {
         background: #1A0F00 !important;
         border: 1px solid #4A2E10 !important;
@@ -65,71 +58,61 @@ def render_login():
         box-shadow: 0 6px 20px rgba(232,103,26,0.4) !important;
         letter-spacing: 0.5px !important;
     }
-    button[data-testid="baseButton-primary"]:hover {
-        background: linear-gradient(135deg, #F5A050, #E8671A) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 10px 28px rgba(232,103,26,0.5) !important;
-    }
     .footer-login { text-align: center; color: #4A2E10; font-size: 0.72rem; margin-top: 1.5rem; }
     </style>
     """, unsafe_allow_html=True)
 
-    # Layout centralizado
     _, col_mid, _ = st.columns([1, 1.4, 1])
     with col_mid:
-        # Header
         st.markdown("""
         <div class="login-header">
-            <div style="font-size:3.5rem; margin-bottom:0.5rem;">🍽️</div>
-            <div class="login-title">Ficha Técnica</div>
-            <div class="login-subtitle">Sistema de Gestão de Cozinha</div>
+            <div class="login-title">Ficha Tecnica</div>
+            <div class="login-subtitle">Sistema de Gestao de Cozinha</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Card de login
-        with st.container():
-            st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
 
-            st.markdown("""
-            <div style="text-align:center; margin-bottom:1.5rem;">
-                <div style="color:#F5E6C8; font-size:1.1rem; font-weight:700;">Bem-vinda de volta</div>
-                <div style="color:#A07850; font-size:0.82rem;">Faça login para acessar o sistema</div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown("""
+        <div style="text-align:center; margin-bottom:1.5rem;">
+            <div style="color:#F5E6C8; font-size:1.1rem; font-weight:700;">Bem-vinda de volta</div>
+            <div style="color:#A07850; font-size:0.82rem;">Faca login para acessar o sistema</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-            with st.form("form_login", clear_on_submit=False):
-                email = st.text_input(
-                    "E-MAIL",
-                    placeholder="seu@email.com",
-                    key="login_email"
-                )
-                senha = st.text_input(
-                    "SENHA",
-                    type="password",
-                    placeholder="••••••••",
-                    key="login_senha"
-                )
-                st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-                entrar = st.form_submit_button(
-                    "Entrar no Sistema →",
-                    use_container_width=True,
-                    type="primary"
-                )
+        with st.form("form_login", clear_on_submit=False):
+            email = st.text_input(
+                "E-MAIL",
+                placeholder="seu@email.com",
+                key="login_email"
+            )
+            senha = st.text_input(
+                "SENHA",
+                type="password",
+                placeholder="••••••••",
+                key="login_senha"
+            )
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            entrar = st.form_submit_button(
+                "Entrar no Sistema",
+                use_container_width=True,
+                type="primary"
+            )
 
-            if entrar:
-                if not email or not senha:
-                    st.error("Preencha e-mail e senha.")
+        if entrar:
+            if not email or not senha:
+                st.error("Preencha e-mail e senha.")
+            else:
+                with st.spinner("Verificando credenciais..."):
+                    usuario = autenticar(email, senha)
+                if usuario:
+                    fazer_login(usuario)
+                    st.success(f"Bem-vinda, {usuario.get('Nome', 'Usuario')}!")
+                    st.rerun()
                 else:
-                    with st.spinner("Verificando credenciais..."):
-                        usuario = autenticar(email, senha)
-                    if usuario:
-                        fazer_login(usuario)
-                        st.success(f"Bem-vinda, {usuario.get('Nome', 'Usuária')}! 👋")
-                        st.rerun()
-                    else:
-                        st.error("❌ E-mail ou senha incorretos.")
+                    st.error("E-mail ou senha incorretos. Verifique os dados e tente novamente.")
 
-            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown("""
         <div class="footer-login">

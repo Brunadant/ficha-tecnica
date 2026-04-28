@@ -1,12 +1,12 @@
 """
-Serviço de autenticação com login/senha.
+Servico de autenticacao com login/senha.
 Senhas armazenadas como SHA-256 hash no Google Sheets.
+A autenticacao SEMPRE le direto da API (sem cache) para garantir seguranca.
 """
 
 import hashlib
 import streamlit as st
 from datetime import datetime
-from src.services.sheets import ler_todos_raw, atualizar_campo
 
 
 def hash_senha(senha: str) -> str:
@@ -16,22 +16,41 @@ def hash_senha(senha: str) -> str:
 def autenticar(email: str, senha: str) -> dict | None:
     """
     Verifica credenciais contra a aba 'usuarios'.
-    Retorna o dict do usuário se válido, None caso contrário.
+    Le DIRETAMENTE do Google Sheets (sem cache) para garantir dados atuais.
+    Retorna o dict do usuario se valido, None caso contrario.
     """
     try:
-        usuarios = ler_todos_raw("usuarios")
+        from src.services.sheets import get_sheet
+        ws = get_sheet("usuarios")
+        registros = ws.get_all_records()
+
         senha_hash = hash_senha(senha)
-        for u in usuarios:
-            if (str(u.get("Email", "")).strip().lower() == email.strip().lower()
-                    and str(u.get("Senha_Hash", "")).strip() == senha_hash
-                    and str(u.get("Status", "")).strip() == "Ativo"):
-                # Atualiza último acesso
-                atualizar_campo("usuarios", str(u["ID"]), "Ultimo_Acesso",
-                                datetime.now().strftime("%d/%m/%Y %H:%M"))
+        email_lower = email.strip().lower()
+
+        for u in registros:
+            email_planilha = str(u.get("Email", "")).strip().lower()
+            senha_planilha = str(u.get("Senha_Hash", "")).strip()
+            status_planilha = str(u.get("Status", "")).strip()
+
+            if (email_planilha == email_lower
+                    and senha_planilha == senha_hash
+                    and status_planilha == "Ativo"):
+                # Atualiza ultimo acesso (nao bloqueia o login se falhar)
+                try:
+                    from src.services.sheets import atualizar_campo
+                    atualizar_campo(
+                        "usuarios", str(u["ID"]), "Ultimo_Acesso",
+                        datetime.now().strftime("%d/%m/%Y %H:%M")
+                    )
+                except Exception:
+                    pass
                 return u
+
+        return None
+
     except Exception as e:
-        st.error(f"Erro ao autenticar: {e}")
-    return None
+        st.error(f"Erro ao conectar com o banco de dados: {e}")
+        return None
 
 
 def esta_logado() -> bool:
@@ -52,7 +71,6 @@ def fazer_logout() -> None:
 
 
 def requer_login():
-    """Decorator/guard: redireciona para login se não autenticado."""
     if not esta_logado():
         st.stop()
 
