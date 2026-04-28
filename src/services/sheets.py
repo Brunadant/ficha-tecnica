@@ -22,15 +22,37 @@ SCOPES = [
 @st.cache_resource(show_spinner=False)
 def get_client() -> gspread.Client:
     """Retorna cliente gspread autenticado (cached para evitar re-autenticação)."""
-    # Tenta carregar de st.secrets (Streamlit Cloud) ou arquivo local
+    # 1. Tenta st.secrets (Streamlit Cloud)
     try:
-        creds_dict = dict(st.secrets["gcp_service_account"])
+        secrets = st.secrets["gcp_service_account"]
+        creds_dict = {
+            "type": secrets["type"],
+            "project_id": secrets["project_id"],
+            "private_key_id": secrets["private_key_id"],
+            "private_key": secrets["private_key"],
+            "client_email": secrets["client_email"],
+            "client_id": secrets["client_id"],
+            "auth_uri": secrets["auth_uri"],
+            "token_uri": secrets["token_uri"],
+            "auth_provider_x509_cert_url": secrets["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": secrets["client_x509_cert_url"],
+            "universe_domain": secrets.get("universe_domain", "googleapis.com"),
+        }
         creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        return gspread.authorize(creds)
     except Exception:
-        # Fallback para arquivo local (desenvolvimento)
-        creds_path = os.path.join(os.path.dirname(__file__), "../../credentials.json")
+        pass
+
+    # 2. Fallback: arquivo credentials.json local (desenvolvimento)
+    creds_path = os.path.join(os.path.dirname(__file__), "../../credentials.json")
+    if os.path.exists(creds_path):
         creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
-    return gspread.authorize(creds)
+        return gspread.authorize(creds)
+
+    raise RuntimeError(
+        "Credenciais não encontradas. Configure os Secrets no Streamlit Cloud "
+        "ou adicione o arquivo credentials.json localmente."
+    )
 
 
 def get_sheet(aba: str) -> gspread.Worksheet:
