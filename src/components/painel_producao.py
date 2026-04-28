@@ -1,46 +1,43 @@
 """
-Painel de Produção KDS - Visual "Status de Voo".
-Cards grandes com cores: Vermelho/Pendente, Amarelo/Preparo, Verde/Pronto.
+Painel de Producao KDS - Visual Status de Voo.
+Cards: Vermelho/Pendente, Amarelo/Preparo, Verde/Pronto.
+Sem leituras redundantes ao Google Sheets.
 """
 
 import streamlit as st
 from datetime import datetime
-from src.services.sheets import ler_todos, atualizar_campo, inserir, proximo_id, get_config
+from src.services.sheets import ler_todos, atualizar_campo, inserir, proximo_id, get_config, invalidar_cache
 from src.utils.whatsapp import link_pedido_pronto
 
 STATUS_CORES = {
-    "Pendente":  {"bg": "#7f1d1d", "borda": "#ef4444", "emoji": "🔴", "label": "PENDENTE"},
-    "Preparo":   {"bg": "#713f12", "borda": "#f59e0b", "emoji": "🟡", "label": "EM PREPARO"},
-    "Pronto":    {"bg": "#14532d", "borda": "#22c55e", "emoji": "🟢", "label": "PRONTO"},
-    "Entregue":  {"bg": "#1e3a5f", "borda": "#38bdf8", "emoji": "✅", "label": "ENTREGUE"},
+    "Pendente": {"bg": "#7f1d1d", "borda": "#ef4444", "label": "PENDENTE"},
+    "Preparo":  {"bg": "#713f12", "borda": "#f59e0b", "label": "EM PREPARO"},
+    "Pronto":   {"bg": "#14532d", "borda": "#22c55e", "label": "PRONTO"},
+    "Entregue": {"bg": "#1e3a5f", "borda": "#38bdf8", "label": "ENTREGUE"},
 }
+
+STATUS_ORDEM = {"Pendente": 0, "Preparo": 1, "Pronto": 2, "Entregue": 3}
 
 
 def render_painel_producao():
-    st.markdown("## 🖥️ Painel de Produção — KDS")
+    st.markdown("## Painel de Producao — KDS")
     st.markdown("---")
 
-    # CSS dos cards KDS
     st.markdown("""
     <style>
     .kds-card {
-        border-radius: 12px;
-        padding: 1.2rem;
-        margin-bottom: 0.8rem;
-        border-left: 5px solid;
-        transition: all 0.2s;
+        border-radius: 12px; padding: 1.2rem; margin-bottom: 0.8rem;
+        border-left: 5px solid; transition: all 0.2s;
     }
     .kds-card:hover { transform: translateX(3px); }
-    .kds-header { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; }
+    .kds-header { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; color: #F5E6C8; }
     .kds-meta { font-size: 0.8rem; color: #94a3b8; }
-    .kds-timer { font-size: 1.5rem; font-weight: 800; }
     </style>
     """, unsafe_allow_html=True)
 
-    # Barra de ações
     col_novo, col_filtro, col_refresh = st.columns([2, 2, 1])
     with col_novo:
-        if st.button("➕ Novo Pedido", type="primary", use_container_width=True):
+        if st.button("Novo Pedido", type="primary", use_container_width=True):
             st.session_state["modal_novo_pedido"] = True
     with col_filtro:
         filtro_status = st.selectbox(
@@ -49,50 +46,50 @@ def render_painel_producao():
             label_visibility="collapsed"
         )
     with col_refresh:
-        if st.button("🔄", help="Atualizar", use_container_width=True):
-            st.cache_data.clear()
+        if st.button("Atualizar", use_container_width=True):
+            invalidar_cache("pedidos")
             st.rerun()
 
-    # Modal novo pedido
     if st.session_state.get("modal_novo_pedido"):
         _form_novo_pedido()
 
-    # Carregar pedidos
+    # Uma unica leitura — cache evita 429
     try:
-        pedidos = ler_todos("pedidos")
+        todos_pedidos = ler_todos("pedidos")
     except Exception as e:
         st.error(f"Erro ao carregar pedidos: {e}")
         return
 
-    # Filtrar
-    if filtro_status != "Todos":
-        pedidos = [p for p in pedidos if p.get("Status") == filtro_status]
-
-    # Ordenar: Pendente → Preparo → Pronto → Entregue
-    ordem = {"Pendente": 0, "Preparo": 1, "Pronto": 2, "Entregue": 3}
-    pedidos.sort(key=lambda p: ordem.get(p.get("Status", ""), 9))
-
-    if not pedidos:
-        st.info("Nenhum pedido encontrado para o filtro selecionado.")
-        return
-
-    # Métricas rápidas
-    total = len(ler_todos("pedidos"))
-    pendentes = sum(1 for p in ler_todos("pedidos") if p.get("Status") == "Pendente")
-    em_preparo = sum(1 for p in ler_todos("pedidos") if p.get("Status") == "Preparo")
-    prontos = sum(1 for p in ler_todos("pedidos") if p.get("Status") == "Pronto")
+    # Metricas calculadas a partir dos dados ja carregados
+    total = len(todos_pedidos)
+    pendentes = sum(1 for p in todos_pedidos if p.get("Status") == "Pendente")
+    em_preparo = sum(1 for p in todos_pedidos if p.get("Status") == "Preparo")
+    prontos = sum(1 for p in todos_pedidos if p.get("Status") == "Pronto")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Hoje", total)
-    m2.metric("🔴 Pendentes", pendentes)
-    m3.metric("🟡 Em Preparo", em_preparo)
-    m4.metric("🟢 Prontos", prontos)
+    m2.metric("Pendentes", pendentes)
+    m3.metric("Em Preparo", em_preparo)
+    m4.metric("Prontos", prontos)
 
     st.markdown("---")
 
-    # Cards dos pedidos
+    # Filtrar e ordenar
+    if filtro_status != "Todos":
+        pedidos_exibir = [p for p in todos_pedidos if p.get("Status") == filtro_status]
+    else:
+        pedidos_exibir = todos_pedidos
+
+    pedidos_exibir.sort(key=lambda p: STATUS_ORDEM.get(p.get("Status", ""), 9))
+
+    if not pedidos_exibir:
+        st.info("Nenhum pedido encontrado para o filtro selecionado.")
+        return
+
+    numero_cozinha = get_config("whatsapp_cozinha")
+
     cols = st.columns(3)
-    for idx, pedido in enumerate(pedidos):
+    for idx, pedido in enumerate(pedidos_exibir):
         status = pedido.get("Status", "Pendente")
         cor = STATUS_CORES.get(status, STATUS_CORES["Pendente"])
         pedido_id = str(pedido.get("ID", ""))
@@ -104,57 +101,51 @@ def render_painel_producao():
         criado = pedido.get("Criado_Em", "")
 
         with cols[idx % 3]:
+            obs_html = f'<div class="kds-meta">Obs: {obs}</div>' if obs else ""
             st.markdown(f"""
             <div class="kds-card" style="background:{cor['bg']}; border-color:{cor['borda']};">
-                <div class="kds-header">{cor['emoji']} #{numero} — Mesa {mesa}</div>
-                <div style="font-size:1rem; margin:0.4rem 0;">🍽️ {prato} × {qtd}</div>
-                {f'<div class="kds-meta">📝 {obs}</div>' if obs else ''}
-                <div class="kds-meta">⏰ {criado}</div>
+                <div class="kds-header">#{numero} — Mesa {mesa}</div>
+                <div style="font-size:1rem; margin:0.4rem 0; color:#F5E6C8;">{prato} x {qtd}</div>
+                {obs_html}
+                <div class="kds-meta">{criado}</div>
                 <div style="margin-top:0.5rem;">
                     <span style="background:{cor['borda']}22; color:{cor['borda']};
-                    padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:700;">
-                    {cor['label']}</span>
+                          padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:700;">
+                        {cor['label']}
+                    </span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            # Botões de ação
             btn_cols = st.columns(2)
+            agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
             with btn_cols[0]:
                 if status == "Pendente":
-                    if st.button("▶ Iniciar", key=f"iniciar_{pedido_id}", use_container_width=True):
+                    if st.button("Iniciar", key=f"ini_{pedido_id}", use_container_width=True):
                         atualizar_campo("pedidos", pedido_id, "Status", "Preparo")
-                        atualizar_campo("pedidos", pedido_id, "Atualizado_Em",
-                                        datetime.now().strftime("%d/%m/%Y %H:%M"))
+                        atualizar_campo("pedidos", pedido_id, "Atualizado_Em", agora)
                         st.rerun()
                 elif status == "Preparo":
-                    if st.button("✅ Pronto", key=f"pronto_{pedido_id}",
+                    if st.button("Pronto", key=f"prt_{pedido_id}",
                                  use_container_width=True, type="primary"):
                         atualizar_campo("pedidos", pedido_id, "Status", "Pronto")
-                        atualizar_campo("pedidos", pedido_id, "Atualizado_Em",
-                                        datetime.now().strftime("%d/%m/%Y %H:%M"))
+                        atualizar_campo("pedidos", pedido_id, "Atualizado_Em", agora)
                         st.rerun()
                 elif status == "Pronto":
-                    if st.button("📦 Entregue", key=f"entregue_{pedido_id}", use_container_width=True):
+                    if st.button("Entregue", key=f"ent_{pedido_id}", use_container_width=True):
                         atualizar_campo("pedidos", pedido_id, "Status", "Entregue")
-                        atualizar_campo("pedidos", pedido_id, "Concluido_Em",
-                                        datetime.now().strftime("%d/%m/%Y %H:%M"))
+                        atualizar_campo("pedidos", pedido_id, "Concluido_Em", agora)
                         st.rerun()
 
             with btn_cols[1]:
-                if status == "Pronto":
-                    numero_cozinha = get_config("whatsapp_cozinha")
-                    if numero_cozinha:
-                        link = link_pedido_pronto(numero_cozinha, numero, mesa, prato)
-                        st.link_button("📲 WhatsApp", link, use_container_width=True)
-                    else:
-                        st.caption("Configure WhatsApp nas configurações")
+                if status == "Pronto" and numero_cozinha:
+                    link = link_pedido_pronto(numero_cozinha, numero, mesa, prato)
+                    st.link_button("WhatsApp", link, use_container_width=True)
 
 
 def _form_novo_pedido():
-    """Formulário para criar novo pedido."""
-    with st.expander("📋 Novo Pedido", expanded=True):
-        # Carregar fichas técnicas disponíveis
+    with st.expander("Novo Pedido", expanded=True):
         try:
             fichas = ler_todos("fichas_tecnicas")
             opcoes_pratos = {f["Nome_Prato"]: f["ID"] for f in fichas if f.get("Nome_Prato")}
@@ -165,7 +156,7 @@ def _form_novo_pedido():
             c1, c2 = st.columns(2)
             with c1:
                 mesa = st.text_input("Mesa *", placeholder="Ex: 5")
-                garcom = st.text_input("Garçom", placeholder="Nome do garçom")
+                garcom = st.text_input("Garcom", placeholder="Nome do garcom")
             with c2:
                 if opcoes_pratos:
                     prato_nome = st.selectbox("Prato *", list(opcoes_pratos.keys()))
@@ -173,18 +164,18 @@ def _form_novo_pedido():
                     prato_nome = st.text_input("Prato *", placeholder="Nome do prato")
                 quantidade = st.number_input("Quantidade", min_value=1, value=1)
 
-            observacao = st.text_area("Observações", placeholder="Sem cebola, bem passado...")
+            observacao = st.text_area("Observacoes", placeholder="Sem cebola, bem passado...")
 
             col_s, col_c = st.columns(2)
             with col_s:
-                salvar = st.form_submit_button("💾 Salvar Pedido", type="primary",
+                salvar = st.form_submit_button("Salvar Pedido", type="primary",
                                                use_container_width=True)
             with col_c:
                 cancelar = st.form_submit_button("Cancelar", use_container_width=True)
 
         if salvar:
             if not mesa or not prato_nome:
-                st.error("Mesa e Prato são obrigatórios.")
+                st.error("Mesa e Prato sao obrigatorios.")
             else:
                 novo_id = proximo_id("pedidos")
                 numero_pedido = f"{datetime.now().strftime('%d%m')}{novo_id:03d}"
@@ -195,7 +186,7 @@ def _form_novo_pedido():
                     prato_nome, quantidade, observacao,
                     "Pendente", agora, agora, ""
                 ])
-                st.success(f"✅ Pedido #{numero_pedido} criado!")
+                st.success(f"Pedido #{numero_pedido} criado!")
                 st.session_state["modal_novo_pedido"] = False
                 st.rerun()
 
