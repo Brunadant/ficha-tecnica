@@ -1,7 +1,7 @@
 """
 Painel de Producao KDS - Visual Status de Voo.
 Cards: Vermelho/Pendente, Amarelo/Preparo, Verde/Pronto.
-Sem leituras redundantes ao Google Sheets.
+Usa componentes nativos do Streamlit para evitar HTML escapado.
 """
 
 import streamlit as st
@@ -9,11 +9,11 @@ from datetime import datetime
 from src.services.sheets import ler_todos, atualizar_campo, inserir, proximo_id, get_config, invalidar_cache
 from src.utils.whatsapp import link_pedido_pronto
 
-STATUS_CORES = {
-    "Pendente": {"bg": "#7f1d1d", "borda": "#ef4444", "label": "PENDENTE"},
-    "Preparo":  {"bg": "#713f12", "borda": "#f59e0b", "label": "EM PREPARO"},
-    "Pronto":   {"bg": "#14532d", "borda": "#22c55e", "label": "PRONTO"},
-    "Entregue": {"bg": "#1e3a5f", "borda": "#38bdf8", "label": "ENTREGUE"},
+STATUS_CONFIG = {
+    "Pendente": {"cor": "#ef4444", "label": "PENDENTE",   "bg": "#3d0000"},
+    "Preparo":  {"cor": "#f59e0b", "label": "EM PREPARO", "bg": "#3d2000"},
+    "Pronto":   {"cor": "#22c55e", "label": "PRONTO",     "bg": "#003d10"},
+    "Entregue": {"cor": "#38bdf8", "label": "ENTREGUE",   "bg": "#00203d"},
 }
 
 STATUS_ORDEM = {"Pendente": 0, "Preparo": 1, "Pronto": 2, "Entregue": 3}
@@ -23,15 +23,27 @@ def render_painel_producao():
     st.markdown("## Painel de Producao — KDS")
     st.markdown("---")
 
+    # CSS apenas para os cards (sem f-string dentro do markdown)
     st.markdown("""
     <style>
     .kds-card {
-        border-radius: 12px; padding: 1.2rem; margin-bottom: 0.8rem;
-        border-left: 5px solid; transition: all 0.2s;
+        border-radius: 14px;
+        padding: 1.2rem 1.4rem;
+        margin-bottom: 0.5rem;
+        border-left: 5px solid;
     }
-    .kds-card:hover { transform: translateX(3px); }
-    .kds-header { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; color: #F5E6C8; }
-    .kds-meta { font-size: 0.8rem; color: #94a3b8; }
+    .kds-title { font-size: 1.05rem; font-weight: 700; color: #F5E6C8; margin-bottom: 0.3rem; }
+    .kds-prato { font-size: 0.95rem; color: #F5E6C8; margin-bottom: 0.2rem; }
+    .kds-obs   { font-size: 0.78rem; color: #A07850; margin-bottom: 0.2rem; }
+    .kds-hora  { font-size: 0.75rem; color: #6B4A28; }
+    .kds-badge {
+        display: inline-block;
+        padding: 2px 12px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        margin-top: 0.4rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,7 +53,7 @@ def render_painel_producao():
             st.session_state["modal_novo_pedido"] = True
     with col_filtro:
         filtro_status = st.selectbox(
-            "Filtrar por status",
+            "Filtrar",
             ["Todos", "Pendente", "Preparo", "Pronto", "Entregue"],
             label_visibility="collapsed"
         )
@@ -53,72 +65,73 @@ def render_painel_producao():
     if st.session_state.get("modal_novo_pedido"):
         _form_novo_pedido()
 
-    # Uma unica leitura — cache evita 429
+    # Leitura unica com cache
     try:
         todos_pedidos = ler_todos("pedidos")
     except Exception as e:
         st.error(f"Erro ao carregar pedidos: {e}")
         return
 
-    # Metricas calculadas a partir dos dados ja carregados
-    total = len(todos_pedidos)
+    # Metricas
+    total    = len(todos_pedidos)
     pendentes = sum(1 for p in todos_pedidos if p.get("Status") == "Pendente")
-    em_preparo = sum(1 for p in todos_pedidos if p.get("Status") == "Preparo")
-    prontos = sum(1 for p in todos_pedidos if p.get("Status") == "Pronto")
+    preparo   = sum(1 for p in todos_pedidos if p.get("Status") == "Preparo")
+    prontos   = sum(1 for p in todos_pedidos if p.get("Status") == "Pronto")
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Hoje", total)
+    m1.metric("Total", total)
     m2.metric("Pendentes", pendentes)
-    m3.metric("Em Preparo", em_preparo)
+    m3.metric("Em Preparo", preparo)
     m4.metric("Prontos", prontos)
-
     st.markdown("---")
 
     # Filtrar e ordenar
-    if filtro_status != "Todos":
-        pedidos_exibir = [p for p in todos_pedidos if p.get("Status") == filtro_status]
-    else:
-        pedidos_exibir = todos_pedidos
-
+    pedidos_exibir = todos_pedidos if filtro_status == "Todos" else [
+        p for p in todos_pedidos if p.get("Status") == filtro_status
+    ]
     pedidos_exibir.sort(key=lambda p: STATUS_ORDEM.get(p.get("Status", ""), 9))
 
     if not pedidos_exibir:
-        st.info("Nenhum pedido encontrado para o filtro selecionado.")
+        st.info("Nenhum pedido encontrado.")
         return
 
     numero_cozinha = get_config("whatsapp_cozinha")
 
     cols = st.columns(3)
     for idx, pedido in enumerate(pedidos_exibir):
-        status = pedido.get("Status", "Pendente")
-        cor = STATUS_CORES.get(status, STATUS_CORES["Pendente"])
+        status    = pedido.get("Status", "Pendente")
+        cfg       = STATUS_CONFIG.get(status, STATUS_CONFIG["Pendente"])
         pedido_id = str(pedido.get("ID", ""))
-        numero = pedido.get("Numero_Pedido", "?")
-        mesa = pedido.get("Mesa", "?")
-        prato = pedido.get("Nome_Prato", "?")
-        qtd = pedido.get("Quantidade", 1)
-        obs = pedido.get("Observacao", "")
-        criado = pedido.get("Criado_Em", "")
+        numero    = pedido.get("Numero_Pedido", "?")
+        mesa      = pedido.get("Mesa", "?")
+        prato     = pedido.get("Nome_Prato", "?")
+        qtd       = pedido.get("Quantidade", 1)
+        obs       = str(pedido.get("Observacao", "")).strip()
+        criado    = pedido.get("Criado_Em", "")
+
+        cor   = cfg["cor"]
+        bg    = cfg["bg"]
+        label = cfg["label"]
+
+        obs_part   = f'<div class="kds-obs">Obs: {obs}</div>' if obs else ""
+        hora_part  = f'<div class="kds-hora">{criado}</div>' if criado else ""
+
+        html_card = (
+            f'<div class="kds-card" style="background:{bg}; border-color:{cor};">'
+            f'<div class="kds-title">#{numero} — Mesa {mesa}</div>'
+            f'<div class="kds-prato">{prato} x {qtd}</div>'
+            f'{obs_part}'
+            f'{hora_part}'
+            f'<div class="kds-badge" style="background:{cor}22; color:{cor}; border:1px solid {cor}44;">'
+            f'{label}</div>'
+            f'</div>'
+        )
 
         with cols[idx % 3]:
-            obs_html = f'<div class="kds-meta">Obs: {obs}</div>' if obs else ""
-            st.markdown(f"""
-            <div class="kds-card" style="background:{cor['bg']}; border-color:{cor['borda']};">
-                <div class="kds-header">#{numero} — Mesa {mesa}</div>
-                <div style="font-size:1rem; margin:0.4rem 0; color:#F5E6C8;">{prato} x {qtd}</div>
-                {obs_html}
-                <div class="kds-meta">{criado}</div>
-                <div style="margin-top:0.5rem;">
-                    <span style="background:{cor['borda']}22; color:{cor['borda']};
-                          padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:700;">
-                        {cor['label']}
-                    </span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(html_card, unsafe_allow_html=True)
 
-            btn_cols = st.columns(2)
             agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            btn_cols = st.columns(2)
 
             with btn_cols[0]:
                 if status == "Pendente":
