@@ -43,7 +43,7 @@ SHEETS_CONFIG = {
     ],
     "checklist_cozinha": [
         "ID", "Data", "Turno", "Responsavel",
-        "Item", "Categoria", "Concluido", "Hora_Conclusao", "Observacao", "Status"
+        "Item", "Categoria", "Concluido", "Hora_Conclusao", "Observacao", "Status", "Editado_Por"
     ],
     "movimentacao_estoque": [
         "ID", "Data", "Insumo_ID", "Nome_Insumo", "Tipo",
